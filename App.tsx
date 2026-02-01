@@ -1,10 +1,12 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { Button } from './components/Button';
 import { editImageWithGemini } from './services/geminiService';
 import { EditHistoryItem } from './types';
+
+const LOCAL_STORAGE_KEY = 'pixelgenie_session';
 
 const App: React.FC = () => {
   const [currentImage, setCurrentImage] = useState<string | null>(null);
@@ -14,10 +16,48 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<EditHistoryItem[]>([]);
 
-  const handleImageSelected = (base64: string) => {
+  // Load state from localStorage on initial render
+  useEffect(() => {
+    try {
+      const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedStateJSON) {
+        const savedState = JSON.parse(savedStateJSON);
+        setCurrentImage(savedState.currentImage || null);
+        setEditedImage(savedState.editedImage || null);
+        setHistory(savedState.history || []);
+      }
+    } catch (err) {
+      console.error("Failed to load state from local storage", err);
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
+  }, []);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    // Don't save if there's no image, to avoid an empty session on refresh after reset
+    if (!currentImage) {
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+        return;
+    };
+
+    try {
+      const stateToSave = {
+        currentImage,
+        editedImage,
+        history,
+      };
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch (err) {
+      console.error("Failed to save state to local storage", err);
+    }
+  }, [currentImage, editedImage, history]);
+
+  const handleImageSelected = (base64: string, fileName: string) => {
     setCurrentImage(base64);
     setEditedImage(null);
     setError(null);
+    setPrompt('');
+    setHistory([]);
   };
 
   const handleEdit = async () => {
@@ -28,16 +68,17 @@ const App: React.FC = () => {
 
     try {
       const result = await editImageWithGemini(currentImage, prompt);
-      setEditedImage(result);
-      
       const newHistoryItem: EditHistoryItem = {
         id: crypto.randomUUID(),
-        originalImage: currentImage,
+        originalImage: editedImage || currentImage, // Chain edits from the last result
         editedImage: result,
         prompt: prompt,
         timestamp: Date.now()
       };
       setHistory(prev => [newHistoryItem, ...prev]);
+      setEditedImage(result); // Update the main result view
+      setCurrentImage(result); // Set the new "original" for the next edit
+      
     } catch (err: any) {
       setError(err.message || "Failed to edit image.");
     } finally {
@@ -50,6 +91,7 @@ const App: React.FC = () => {
     setEditedImage(null);
     setPrompt('');
     setError(null);
+    setHistory([]);
   };
 
   return (
@@ -83,18 +125,10 @@ const App: React.FC = () => {
                 
                 <div className="p-4 flex flex-col md:flex-row gap-4 justify-center items-start min-h-[400px]">
                   <div className="flex-1 w-full space-y-2">
-                    <span className="text-xs uppercase tracking-wider font-bold text-slate-500">Original</span>
+                    <span className="text-xs uppercase tracking-wider font-bold text-slate-500">Image</span>
                     <div className="aspect-square relative rounded-xl overflow-hidden bg-slate-900 border border-slate-700">
-                      <img src={currentImage} alt="Original" className="w-full h-full object-contain" />
-                    </div>
-                  </div>
-
-                  {editedImage && (
-                    <div className="flex-1 w-full space-y-2">
-                      <span className="text-xs uppercase tracking-wider font-bold text-indigo-400">Result</span>
-                      <div className="aspect-square relative rounded-xl overflow-hidden bg-slate-900 border border-indigo-500/30">
-                        <img src={editedImage} alt="Edited" className="w-full h-full object-contain" />
-                        <a 
+                      <img src={currentImage} alt="Current" className="w-full h-full object-contain" />
+                       {editedImage && (<a 
                           href={editedImage} 
                           download="pixelgenie-edit.png" 
                           className="absolute bottom-2 right-2 bg-indigo-600 p-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-lg"
@@ -102,10 +136,9 @@ const App: React.FC = () => {
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
-                        </a>
-                      </div>
+                        </a>)}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -175,7 +208,7 @@ const App: React.FC = () => {
                         key={item.id} 
                         className="bg-slate-900 rounded-xl p-3 border border-slate-700 hover:border-indigo-500/50 transition-all cursor-pointer group"
                         onClick={() => {
-                          setCurrentImage(item.originalImage);
+                          setCurrentImage(item.editedImage);
                           setEditedImage(item.editedImage);
                           setPrompt(item.prompt);
                         }}
