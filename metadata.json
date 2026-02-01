@@ -1,0 +1,5 @@
+{
+  "name": "PixelGenie - AI Image Editor",
+  "description": "An unrestricted AI-powered image editor using Gemini 2.5 Flash Image. Transform, filter, and modify your photos using natural language prompts.",
+  "requestFramePermissions": []
+}
